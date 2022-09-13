@@ -27,7 +27,7 @@ def printhelp():
     print(f'\nUSAGE:\n python3 <scriptname> -i <hostsFile>')
     print(f'  <scriptname>   : name of python script')
     print(f'  <hostsFile>    : text file list of ip addresses, one per line')
-    print(f'\nLOGIN CREDENTIALS:\n Set as env variables or can be set manually on line 18\n') 
+    print(f'\nLOGIN CREDENTIALS:\n Set as env variables or can be set manually on line 21\n') 
 
 startTime = time.time()
 env1 = "TACACS_USER"

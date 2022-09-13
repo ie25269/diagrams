@@ -1,7 +1,7 @@
 import os, sys, getopt, time, csv, pprint
-import networkx as nx
 from netmiko import ( ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException,)
 from pyvis.network import Network
+from datetime import date
 #
 # DESCRIPTION:
 # This script collects lldp neighbor information to create diagram.html file using networkx.
@@ -14,7 +14,10 @@ from pyvis.network import Network
 #
 # LOGIN CREDENTIALS:
 # Set as env variables or can be set manually below.
-# 
+#
+# VIS Reference:
+# https://visjs.github.io/vis-network/docs/network/
+
 sshUser = "JohnDoe"
 sshPass = "JohnDoePassword"
 sshSecret = "JohnDoeEnablePassword"
@@ -57,6 +60,22 @@ except getopt.error as err:
     sys.exit()
 
 
+def getNeighHostname(device, intf):
+    neighName = ""
+    try:
+        with ConnectHandler(**device) as ssh:
+            command = "show lldp neighbor " + intf + " detail | inc ^System Name"
+            output = ssh.send_command(command)
+            lines = output.splitlines()
+            fline = lines[0].split()
+            flineLen = len(fline) - 1
+            neighName = fline[flineLen]
+            dotChar = neighName.find(".")
+            neighName = neighName[0:dotChar]
+        return neighName
+    except (NetmikoTimeoutException, NetmikoAuthenticationException) as error:
+        print(error)
+
 def send_show_command(device, commands):
     result = {}
     try:
@@ -81,7 +100,14 @@ def input2List(inputFile):
 
 
 # -----------------------------------------
+netDate = date.today()
+netDate = netDate.strftime("%m/%d/%Y")
+netTitle = "LLDP Neighbor Network Diagram - " + str(netDate)
 net = Network(height="95%", width="95%", notebook=True)
+nodeDist = 600
+springLength = 800
+netSeed = '8'
+# -----------------------------------------
 
 ipList = input2List(inFile)
 myResults = []
@@ -109,7 +135,9 @@ for ip in ipList:
             fline = result1[0].split()
             localName= fline[1]
             nodeInfo= "IP: " + ip
-            net.add_node(localName, title=nodeInfo, shape='image', image='icons/router1.svg')
+            # UNCOMMENT below line to use custom images for nodes.  SVG recommended
+            #net.add_node(localName, title=nodeInfo, shape='image', image='icons/router1.svg')
+            net.add_node(localName, title=nodeInfo)
 
             # Get lldp neighbors 
             output2 = ssh.send_command(cmd2)
@@ -128,23 +156,37 @@ for ip in ipList:
                     item = line.split()
                     fword = item[0]
                     fwordLen = len(fword)
+                    nameStop = fword.find(".")
+                    neName = fword[0:neighChar]
+                    neNameLen = len(neName)
                     itemLen = len(item)
+                    
                     if fwordLen < neighChar:
                         neighName = item[0]
+                        dotChar = neighName.find(".")
+                        neighName = neighName[0:dotChar]
                         localIntf = item[1]
                         neighIntf = item[itemLen-1]
                     else:
-                        nName = fword[0:neighChar]
-                        dotChar = nName.find(".")
-                        neighName = nName[0:dotChar]
                         localIntf = fword[neighChar:fwordLen]
                         neighIntf = item[itemLen-1]
+                        neighName = fword[0:neighChar]
+                        dotChar = neighName.find(".")
+                        neighName = neighName[0:dotChar]
+                        neighNameLen = len(neighName)
+                        if len(neighName) < neighChar:
+                            neighName = neighName
+                        else:
+                            neighName = getNeighHostname(device,localIntf)
+
 
                     intfDot = neighIntf.rfind(".")
                     if intfDot != -1:
                         something = 'null'
                     else:
-                        net.add_node(neighName, shape='image', image='icons/router1.svg')
+                        # UNCOMMENT below line to use custom images for nodes.  SVG recommended.
+                        #net.add_node(neighName, shape='image', image='icons/router1.svg')
+                        net.add_node(neighName)
                         neighCount += 1
 
                         lName = localName.lower()
@@ -153,8 +195,6 @@ for ip in ipList:
                         nIntf = neighIntf.lower()
                         edgeColor="#004dbd"
                         connLabel = lName + ":" + localIntf + "_to_" + neighIntf + ":" + nName
-
-                        #'''
 
                         if lIntf.startswith("te") and nIntf.startswith("te"): 
                             edgeColor = "#00bd56"
@@ -171,17 +211,13 @@ for ip in ipList:
                         else:
                             edgeColor = "#0009bd"
 
-                        #'''
-                        exp1 = lName.endswith("_SR")
-                        exp2 = lName.endswith("_sr")
-                        exp3 = nName.endswith("_SR")
-                        exp4 = nName.endswith("_sr")
-                        if (exp1 or exp2) and (exp3 or exp4):
-                            net.add_edge(localName,neighName,value="1",color=edgeColor,title=connLabel)
-                        else:
-                            net.add_edge(localName,neighName,color=edgeColor,title=connLabel)
+                        # UNCOMMENT below line to apply weight and line color
+                        #net.add_edge(localName,neighName,value="1",color=edgeColor,title=connLabel)
+                        # UNCOMMENT below line to apply line color
+                        #net.add_edge(localName,neighName,color=edgeColor,title=connLabel)
+                        net.add_edge(localName,neighName,title=connLabel)
 
-                        # Uncomment below line to display lldp neighbor output as it is collected, useful for debugging.
+                        #Uncomment below line to display lldp neighbor output as rx'ed, useful for debugging.
                         #print(f'{localName:<15} {localIntf:<30} {neighName:<25} {neighIntf:<10}')
             print(f' {localName:<24}: found {neighCount:>3} lldp interface neighbors.')
 
@@ -197,14 +233,28 @@ for ip in ipList:
 
 # -----------------------------------------
 net.toggle_physics(False)
-net.repulsion(node_distance=500, spring_length=600)
-net.set_options('{"layout":{"randomSeed":8}}')
+net.repulsion(node_distance=nodeDist, spring_length=springLength)
+net.set_options('{ "layout":{"randomSeed":' + netSeed + '},"interaction":{"dragNodes":true}}')
 net.show("diagram.html")
-#----
-#plt.title("Network Diagram", size=15)
-#plt.figure(1, figsize=(400, 600), dpi=60)
-#plt.savefig("diagrams/diagram.png")
-#plt.clf()
+# -----------------------------------------
+titleString = "<body><center>" + netTitle + "</center>"
+
+# READ IN diagram html file
+with open('diagram.html', 'r') as file :
+  filedata = file.read()
+
+# ADD TITLE
+filedata = filedata.replace("<body>",titleString)
+
+# UNCOMMENT TWO LINES BELOW IF ...
+# You don't want your diagram making web calls everytime you load it in your browser.
+# You'll need to save the css and js files and reference them locally.
+#filedata = filedata.replace("https://cdn.jsdelivr.net/npm/vis-network@latest/styles/vis-network.css", "files/vis-network.css")
+#filedata = filedata.replace("https://cdn.jsdelivr.net/npm/vis-network@latest/dist/vis-network.min.js", "files/vis-network.min.js")
+
+# WRITE OUT diagram html file with replaced text
+with open('diagram.html', 'w') as file:
+  file.write(filedata)
 # -----------------------------------------
 endTime = time.time()
 runTime = round((endTime - startTime),2)

@@ -134,17 +134,14 @@ def getNeighInfo(ip):
             fline = result1[0].split()
             localName= fline[1]
             nodeInfo= "IP: " + ip
-            nameCheck1 = localName.startswith(('asr_','ASR_'))
-            nameCheck2 = localName.startswith(('sw_','SW_'))
-            nameCheck3 = localName.startswith(('l3s_','L3S','L3_','l3_'))
+            nameCheck1 = localName.startswith(('rtr','RTR'))
+            nameCheck2 = localName.startswith(('sw-','SW-'))
             if nameCheck1:
-                net.add_node(localName, size=15, title=nodeInfo, shape='image', image='icons/routerBig.svg')
+                net.add_node(localName, size=13, title=nodeInfo, shape='image', image='icons/routerMedium.svg')
             elif nameCheck2:
-                net.add_node(localName, size=11, title=nodeInfo, shape='image', image='icons/switchSmall.svg')
-            elif nameCheck3:
-                net.add_node(localName, size=14, title=nodeInfo, shape='image', image='icons/switchBig.svg')
+                net.add_node(localName, size=12, title=nodeInfo, shape='image', image='icons/switchSmall.svg')
             else:
-                net.add_node(localName, size=12, title=nodeInfo, shape='image', image='icons/routerMedium.svg')
+                net.add_node(localName, size=12, title=nodeInfo, shape='image', image='icons/routerSmall.svg')
 
 
             # Get lldp neighbors 
@@ -192,15 +189,12 @@ def getNeighInfo(ip):
                     if intfDot != -1:
                         something = 'null'
                     else:
-                        nameCheck1 = neighName.startswith(('asr_','ASR_'))
-                        nameCheck2 = neighName.startswith(('sw_','SW_'))
-                        nameCheck3 = neighName.startswith(('l3s_','L3S','L3_','l3_'))
+                        nameCheck1 = neighName.startswith(('rtr','RTR'))
+                        nameCheck2 = neighName.startswith(('sw-','SW-'))
                         if nameCheck1:
-                            net.add_node(neighName, size=15, title=nodeInfo, shape='image', image='icons/routerBig.svg')
+                            net.add_node(neighName, size=13, title=nodeInfo, shape='image', image='icons/routerMedium.svg')
                         elif nameCheck2:
-                            net.add_node(neighName, size=11, title=nodeInfo, shape='image', image='icons/switchSmall.svg')
-                        elif nameCheck3:
-                            net.add_node(neighName, size=14, title=nodeInfo, shape='image', image='icons/switchBig.svg')
+                            net.add_node(neighName, size=12, title=nodeInfo, shape='image', image='icons/switchSmall.svg')
                         else:
                             net.add_node(neighName, size=12, title=nodeInfo, shape='image', image='icons/routerSmall.svg')
                         neighCount += 1
@@ -286,8 +280,8 @@ filedata = filedata.replace("<body>",titleString)
 # COMMENT TWO LINES BELOW IF NOT USING LOCAL CSS/JS FILES...
 # This section replaces links in the diagram html file so we are not 
 # making url calls every time a diagram is generated and opened in browser.
-filedata = filedata.replace("https://cdn.jsdelivr.net/npm/vis-network@latest/styles/vis-network.css", "files/vis-network.css")
-filedata = filedata.replace("https://cdn.jsdelivr.net/npm/vis-network@latest/dist/vis-network.min.js", "files/vis-network.min.js")
+#filedata = filedata.replace("https://cdn.jsdelivr.net/npm/vis-network@latest/styles/vis-network.css", "files/vis-network.css")
+#filedata = filedata.replace("https://cdn.jsdelivr.net/npm/vis-network@latest/dist/vis-network.min.js", "files/vis-network.min.js")
 
 # WRITE OUT diagram html file with replaced text
 with open('diagram.html', 'w') as file:

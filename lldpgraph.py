@@ -1,7 +1,9 @@
 import os, sys, getopt, time, csv, pprint
+from codecs import decode
 from netmiko import ( ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException,)
 from pyvis.network import Network
 from datetime import date
+import concurrent.futures
 #
 # DESCRIPTION:
 # This script collects lldp neighbor information to create diagram.html file using networkx.
@@ -16,7 +18,7 @@ from datetime import date
 # Set as env variables or can be set manually below.
 #
 # VIS Reference:
-# https://visjs.github.io/vis-network/docs/network/
+# https://visjs.github.io/vis-network/docs/network/edges.html
 
 sshUser = "JohnDoe"
 sshPass = "JohnDoePassword"
@@ -27,7 +29,7 @@ def printhelp():
     print(f'\nUSAGE:\n python3 <scriptname> -i <hostsFile>')
     print(f'  <scriptname>   : name of python script')
     print(f'  <hostsFile>    : text file list of ip addresses, one per line')
-    print(f'\nLOGIN CREDENTIALS:\n Set as env variables or can be set manually on line 21\n') 
+    print(f'\nLOGIN CREDENTIALS:\n Set as env variables or can be set manually on line 18\n') 
 
 startTime = time.time()
 env1 = "TACACS_USER"
@@ -59,6 +61,11 @@ except getopt.error as err:
     print("\nError: " , str(err) , "\n")
     sys.exit()
 
+def fetchIPs(inputFile):
+    ipFile = inputFile
+    with open(ipFile) as devices:
+        addresses = devices.read().splitlines()
+    return addresses
 
 def getNeighHostname(device, intf):
     neighName = ""
@@ -76,50 +83,42 @@ def getNeighHostname(device, intf):
     except (NetmikoTimeoutException, NetmikoAuthenticationException) as error:
         print(error)
 
-def send_show_command(device, commands):
-    result = {}
+def getEdgeColor(locInt,neighInt):
+    if locInt.startswith("hu") and neighInt.startswith("hu"):
+        edgeColor = "ec407a"
+    elif locInt.startswith("twe") and neighInt.startswith("twe"):
+        edgeColor = "00bcd4"
+    elif locInt.startswith("te") and neighInt.startswith("te"):
+        edgeColor = "03a9f4"
+    elif locInt.startswith("twe") and neighInt.startswith("te"):
+        edgeColor = "03a9f4"
+    elif locInt.startswith("te") and neighInt.startswith("twe"):
+        edgeColor = "03a9f4"
+    elif locInt.startswith("te") and neighInt.startswith("eth"):
+        edgeColor = "03a9f4"
+    elif locInt.startswith("gi") and neighInt.startswith("gi"):
+        edgeColor = "1065d2"
+    elif locInt.startswith("te") and neighInt.startswith("gi"):
+        edgeColor = "1065d2"
+    elif locInt.startswith("gi") and neighInt.startswith("te"):
+        edgeColor = "1065d2"
+    elif locInt.startswith("fa") or neighInt.startswith("fa"):
+        edgeColor = "1065d2"
+    else:
+        edgeColor = "808b96"
+    return edgeColor
+
+def getNeighInfo(ip):
     try:
-        with ConnectHandler(**device) as ssh:
-            ssh.enable()
-            for command in commands:
-                output = ssh.send_command(command)
-                result[command] = output
-        return result
-    except (NetmikoTimeoutException, NetmikoAuthenticationException) as error:
-        print(error)
-
-def input2List(inputFile):
-    # Convert csv input file to list
-    inList = list()
-    with open(inputFile) as data:
-        csv_list = csv.reader(data)
-        for row in csv_list:
-            ipAddr = row[0]
-            inList.append(ipAddr)
-    return inList
-
-
-# -----------------------------------------
-netDate = date.today()
-netDate = netDate.strftime("%m/%d/%Y")
-netTitle = "LLDP Neighbor Network Diagram - " + str(netDate)
-net = Network(height="95%", width="95%", notebook=True)
-nodeDist = 600
-springLength = 800
-netSeed = '8'
-# -----------------------------------------
-
-ipList = input2List(inFile)
-myResults = []
-for ip in ipList:
-    device = {
-        "device_type": "cisco_ios",
-        "host": ip,
-        "username": sshUser,
-        "password": sshPass,
-        "secret": sshSecret,
-    }
-    try:
+        device = {
+            "device_type": "cisco_ios",
+            "host": ip,
+            "username": sshUser,
+            "password": sshPass,
+            "secret": sshSecret,
+        }
+        ssh = ConnectHandler(**device)
+        ssh.enable()
         cmd1 = "show run | include hostname"
         cmd2 = "show lldp neighbors | begin ^Device"
         dev = {}
@@ -135,9 +134,18 @@ for ip in ipList:
             fline = result1[0].split()
             localName= fline[1]
             nodeInfo= "IP: " + ip
-            # UNCOMMENT below line to use custom images for nodes.  SVG recommended
-            #net.add_node(localName, title=nodeInfo, shape='image', image='icons/router1.svg')
-            net.add_node(localName, title=nodeInfo)
+            nameCheck1 = localName.startswith(('asr_','ASR_'))
+            nameCheck2 = localName.startswith(('sw_','SW_'))
+            nameCheck3 = localName.startswith(('l3s_','L3S','L3_','l3_'))
+            if nameCheck1:
+                net.add_node(localName, size=15, title=nodeInfo, shape='image', image='icons/routerBig.svg')
+            elif nameCheck2:
+                net.add_node(localName, size=11, title=nodeInfo, shape='image', image='icons/switchSmall.svg')
+            elif nameCheck3:
+                net.add_node(localName, size=14, title=nodeInfo, shape='image', image='icons/switchBig.svg')
+            else:
+                net.add_node(localName, size=12, title=nodeInfo, shape='image', image='icons/routerMedium.svg')
+
 
             # Get lldp neighbors 
             output2 = ssh.send_command(cmd2)
@@ -184,40 +192,37 @@ for ip in ipList:
                     if intfDot != -1:
                         something = 'null'
                     else:
-                        # UNCOMMENT below line to use custom images for nodes.  SVG recommended.
-                        #net.add_node(neighName, shape='image', image='icons/router1.svg')
-                        net.add_node(neighName)
+                        nameCheck1 = neighName.startswith(('asr_','ASR_'))
+                        nameCheck2 = neighName.startswith(('sw_','SW_'))
+                        nameCheck3 = neighName.startswith(('l3s_','L3S','L3_','l3_'))
+                        if nameCheck1:
+                            net.add_node(neighName, size=15, title=nodeInfo, shape='image', image='icons/routerBig.svg')
+                        elif nameCheck2:
+                            net.add_node(neighName, size=11, title=nodeInfo, shape='image', image='icons/switchSmall.svg')
+                        elif nameCheck3:
+                            net.add_node(neighName, size=14, title=nodeInfo, shape='image', image='icons/switchBig.svg')
+                        else:
+                            net.add_node(neighName, size=12, title=nodeInfo, shape='image', image='icons/routerSmall.svg')
                         neighCount += 1
 
                         lName = localName.lower()
                         nName = neighName.lower() 
                         lIntf = localIntf.lower()
                         nIntf = neighIntf.lower()
-                        edgeColor="#004dbd"
                         connLabel = lName + ":" + localIntf + "_to_" + neighIntf + ":" + nName
 
-                        if lIntf.startswith("te") and nIntf.startswith("te"): 
-                            edgeColor = "#00bd56"
-                        elif lIntf.startswith("twe") and nIntf.startswith("te"):
-                            edgeColor = "#00bd56"
-                        elif lIntf.startswith("twe") and nIntf.startswith("twe"):
-                            edgeColor = "#00ce5e"
-                        elif lIntf.startswith("hu") and nIntf.startswith("hu"):
-                            edgeColor = "#bd0067"
-                        elif lIntf.startswith("gi") and nIntf.startswith("gi"):
-                            edgeColor = "#0009bd"
-                        elif lIntf.startswith("fa") or nIntf.startswith("fa"):
-                            edgeColor = "#bdb400"
+                        useColors = True
+
+                        if useColors:
+                            eColor = getEdgeColor(lIntf,nIntf)
+                            eColor = "#" + eColor
+                            net.add_edge(localName,neighName,color=eColor,title=connLabel)
+
                         else:
-                            edgeColor = "#0009bd"
+                            net.add_edge(localName,neighName,title=connLabel)
 
-                        # UNCOMMENT below line to apply weight and line color
-                        #net.add_edge(localName,neighName,value="1",color=edgeColor,title=connLabel)
-                        # UNCOMMENT below line to apply line color
-                        #net.add_edge(localName,neighName,color=edgeColor,title=connLabel)
-                        net.add_edge(localName,neighName,title=connLabel)
 
-                        #Uncomment below line to display lldp neighbor output as rx'ed, useful for debugging.
+                        #Uncomment below line to print lldp info to stdout as it is rXed, useful for debugging.
                         #print(f'{localName:<15} {localIntf:<30} {neighName:<25} {neighIntf:<10}')
             print(f' {localName:<24}: found {neighCount:>3} lldp interface neighbors.')
 
@@ -231,7 +236,39 @@ for ip in ipList:
         print(f'Error: Script ended by User')
         sys.exit()
 
+    return
+
+
+
 # -----------------------------------------
+netDate = date.today()
+netDate = netDate.strftime("%m/%d/%Y")
+netTitle = "LLDP Neighbor Network Diagram - " + str(netDate)
+net = Network(height="95%", width="95%", notebook=True)
+nodeDist = 600
+springLength = 800
+netSeed = '8'
+# -----------------------------------------
+
+
+try:
+    with concurrent.futures.ThreadPoolExecutor() as exe:
+        ip_addresses = fetchIPs(inFile)
+        results = exe.map(getNeighInfo, ip_addresses, chunksize=10)
+except (concurrent.futures.TimeoutError, concurrent.futures.CancelledError) as error:
+    print(f'{error}')
+except KeyboardInterrupt as error:
+    print(f'Error: Script ended by User')
+    sys.exit()
+
+
+
+# -----------------------------------------
+#plt.title("LLDP Network Diagram", size=15)
+#plt.figure(1, figsize=(400, 600), dpi=60)
+#plt.savefig("diagram.png")
+#plt.clf()
+#----
 net.toggle_physics(False)
 net.repulsion(node_distance=nodeDist, spring_length=springLength)
 net.set_options('{ "layout":{"randomSeed":' + netSeed + '},"interaction":{"dragNodes":true}}')
@@ -246,11 +283,11 @@ with open('diagram.html', 'r') as file :
 # ADD TITLE
 filedata = filedata.replace("<body>",titleString)
 
-# UNCOMMENT TWO LINES BELOW IF ...
-# You don't want your diagram making web calls everytime you load it in your browser.
-# You'll need to save the css and js files and reference them locally.
-#filedata = filedata.replace("https://cdn.jsdelivr.net/npm/vis-network@latest/styles/vis-network.css", "files/vis-network.css")
-#filedata = filedata.replace("https://cdn.jsdelivr.net/npm/vis-network@latest/dist/vis-network.min.js", "files/vis-network.min.js")
+# COMMENT TWO LINES BELOW IF NOT USING LOCAL CSS/JS FILES...
+# This section replaces links in the diagram html file so we are not 
+# making url calls every time a diagram is generated and opened in browser.
+filedata = filedata.replace("https://cdn.jsdelivr.net/npm/vis-network@latest/styles/vis-network.css", "files/vis-network.css")
+filedata = filedata.replace("https://cdn.jsdelivr.net/npm/vis-network@latest/dist/vis-network.min.js", "files/vis-network.min.js")
 
 # WRITE OUT diagram html file with replaced text
 with open('diagram.html', 'w') as file:
